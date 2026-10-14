@@ -166,10 +166,18 @@ if (firstArg != null && !SKIP_EARLY_CONFIG.has(firstArg)) {
   // hint and no command policy, so registration/help needs nothing from config.
   // Skip the heavy `config/loader` import (ajv + yaml + resolver) in that case so
   // `--help` and bare-namespace startup stay off the config stack. See #706.
-  const { discoverConfigFile, ENV_CONFIG_FILE } = await import('./config/discover.js')
-  const envConfigFile = process.env[ENV_CONFIG_FILE]
-  const earlyPath = earlyConfigPath ?? (envConfigFile != null && envConfigFile.length > 0 ? envConfigFile : await discoverConfigFile())
+  const { findConfigFile } = await import('./config/discover.js')
+  const earlyPath = await findConfigFile(earlyConfigPath)
   if (earlyPath != null || hasOverrides) {
+    // Version auto-detection (#766) runs first so registration below sees the detected
+    // version. Only `stack <group> <command>` uses versions, so bare namespaces (which print
+    // help) and other namespaces skip it, as do help and dry-run. A no-op unless a sniff is due.
+    const noSniff = firstArg !== 'stack' || operands.length < 3 ||
+      process.argv.some((a) => a === '--help' || a === '-h' || a === '--dry-run')
+    if (earlyPath != null && !noSniff) {
+      const { sniffIfDue } = await import('./config/sniff.js')
+      await sniffIfDue({ path: earlyPath, ...(earlyContext != null && { contextName: earlyContext }), json: process.argv.includes('--json'), explicitPath: earlyConfigPath != null })
+    }
     // Fast path: a dependency-free scan of the version hints avoids loading `yaml`
     // (~60 modules). Command policies and anything it cannot prove it understands
     // fall through to the full loader below.

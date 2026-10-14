@@ -29,7 +29,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 // ./schema (ajv) and @elastic/config-resolver are imported lazily in loadConfig so the help path skips them
-import { ENV_CONFIG_FILE, discoverConfigFile } from './discover.ts'
+import { ENV_CONFIG_FILE, findConfigFile } from './discover.ts'
 import { hasInlineSecrets, type RawConfig } from './writer.ts'
 import type { ConfigFile, ResolvedConfig, ResolvedContext } from './types.ts'
 import { BUILT_IN_PROFILES, type BuiltInProfile } from './profiles.ts'
@@ -168,6 +168,7 @@ export function resolveContext (config: ConfigFile, contextName: string, profile
 
   if (config.banner != null) result.banner = config.banner
   if (config.telemetry != null) result.telemetry = config.telemetry
+  if (config.detect_version != null) result.detect_version = config.detect_version
   return result
 }
 
@@ -216,6 +217,7 @@ function resolveHelpConfig (raw: unknown, contextName: string | undefined, profi
     ...(typeof defaultProfile === 'string' && (BUILT_IN_PROFILES as readonly string[]).includes(defaultProfile) && { default_profile: defaultProfile as BuiltInProfile }),
     ...(r['banner'] != null && { banner: r['banner'] as NonNullable<ConfigFile['banner']> }),
     ...(r['telemetry'] != null && { telemetry: r['telemetry'] as NonNullable<ConfigFile['telemetry']> }),
+    ...(r['detect_version'] != null && { detect_version: r['detect_version'] as NonNullable<ConfigFile['detect_version']> }),
   }
   // unvalidated policy reaches hideBlockedCommands, which assumes the schema's shapes
   const wellFormed = isWellFormedPolicy(r['commands']) && isWellFormedPolicy(ctx.commands)
@@ -340,14 +342,7 @@ export async function loadConfig (options: LoadConfigOptions = {}): Promise<Load
   let raw: unknown
   let resolvedPath: string | null
   try {
-    const envConfigFile = process.env[ENV_CONFIG_FILE]
-    if (configPath != null) {
-      resolvedPath = configPath
-    } else if (envConfigFile != null && envConfigFile.length > 0) {
-      resolvedPath = envConfigFile
-    } else {
-      resolvedPath = await discoverConfigFile()
-    }
+    resolvedPath = await findConfigFile(configPath)
 
     if (resolvedPath == null) {
       return {
@@ -463,6 +458,7 @@ export async function loadConfig (options: LoadConfigOptions = {}): Promise<Load
     ...(defaultProfile != null && { default_profile: defaultProfile }),
     ...(structural.data.banner != null && { banner: structural.data.banner }),
     ...(structural.data.telemetry != null && { telemetry: structural.data.telemetry }),
+    ...(structural.data.detect_version != null && { detect_version: structural.data.detect_version }),
   }
   let result: LoadConfigResult
   try {
